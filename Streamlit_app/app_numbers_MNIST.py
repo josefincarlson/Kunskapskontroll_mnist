@@ -17,8 +17,9 @@ st.set_page_config(
 # Laddar modellen
 @st.cache_resource
 def load_model():
-    return joblib.load("svc_mnist.joblib")
-
+    model_path = Path(__file__).parent / "svc_mnist.joblib"
+    return joblib.load(model_path)
+    
 model = load_model()
 
 if "canvas_key" not in st.session_state:
