@@ -1,4 +1,6 @@
-# Importerar bibliotek 
+# =========================
+# IMPORTERAR BIBLIOTEK
+# =========================
 import joblib
 import numpy as np
 import pandas as pd
@@ -9,13 +11,18 @@ import altair as alt
 from pathlib import Path
 
 
-# Titel på sidan
+# =========================
+# INSTÄLLNINGAR PÅ SIDAN
+# =========================
 st.set_page_config(
     page_title="MNIST - SVC sifferanalys",
     layout="centered"
 )
 
-# Laddar modellen
+
+# =========================
+# LADDAR MODELLEN - svc_mnist.joblib
+# =========================
 @st.cache_resource
 def load_model():
     model_path = Path(__file__).parent / "svc_mnist.joblib"
@@ -23,41 +30,61 @@ def load_model():
     
 model = load_model()
 
-if "canvas_key" not in st.session_state:
-    st.session_state["canvas_key"] = 0
 
+# =========================
+# INITIERAR SESSION STATE
+# =========================
+if "canvas_key" not in st.session_state:
+    st.session_state["canvas_key"] = 0      # Används för att återställa canvas vid klick på "Rensa ritytan"
+
+if "last_scores" not in st.session_state:
+    st.session_state["last_scores"] = None  # Används till diagrammet
+
+
+# =========================
+# RUBRIK / INTROTEXT
+# =========================
 st.markdown(
     """
     <h1 style="text-align:center; margin-bottom: 12px;">
-      Rita en siffra mellan 0–9. Modellen analyserar din siffra.
+      Rita en siffra mellan 0–9. <br>Modellen analyserar din siffra.
     </h1>
     """,
     unsafe_allow_html=True
 )
 
-# Layoutkolumner
+# =========================
+# LAYOUT (KOLUMNER)
+# =========================
 left, mid, right = st.columns([1, 2, 1])
 
 
-# Canvas
+# =========================
+# CANVAS - Inställningar för canvas
+# =========================
 canvas_size = 280
 stroke_width = 12
 
 with mid:
-    canvas = st_canvas(
-        fill_color="rgba(0, 0, 0, 0)",
-        stroke_width=stroke_width,
-        stroke_color="#FFFFFF",
-        background_color="#000000",
-        width=canvas_size,
-        height=canvas_size,
-        drawing_mode="freedraw",
-        key=f"canvas_{st.session_state['canvas_key']}",
-        
-    )
+    c_left, c_mid, c_right = st.columns([1, 15, 1])
+    with c_mid:
+        canvas = st_canvas(
+            fill_color="rgba(0, 0, 0, 0)",
+            stroke_width=stroke_width,
+            stroke_color="#FFFFFF",
+            background_color="#000000",
+            width=canvas_size,
+            height=canvas_size,
+            drawing_mode="freedraw",
+            display_toolbar=False,
+            key=f"canvas_{st.session_state['canvas_key']}",
+        )
 
-# Preprocessor
-def shift_to_center(arr28: np.ndarray) -> np.ndarray:
+# =========================
+# PREPROCESSING-FUNKTIONER - för att förbereda den ritade bilden så att den matchar format för hur den blivit tränad (MNIST-dataset)
+# =========================
+def shift_to_center(arr28: np.ndarray) -> np.ndarray:           
+    """Centrerar siffran i 28x28-bilden. Även om användaren ritar lite för långt åt sidan flyttas siffran mot mitten, vilket kan förbättra prediktionen."""
     arr = arr28.astype(np.float32)
     total = arr.sum()
     if total <= 1e-6:
@@ -81,48 +108,8 @@ def shift_to_center(arr28: np.ndarray) -> np.ndarray:
     return shifted
 
 
-def deskew_rotate(arr28: np.ndarray, threshold: int = 10) -> np.ndarray:
-    """Roterar bilden så huvudaxeln blir mer vertikal (enkel deskew)."""
-    img = arr28.astype(np.float32)
-
-    ys, xs = np.where(img > threshold)
-    if len(xs) < 20:
-        return img
-
-    # centrerade koordinater
-    x = xs - xs.mean()
-    y = ys - ys.mean()
-
-    cov = np.cov(np.vstack([x, y]))
-    eigvals, eigvecs = np.linalg.eig(cov)
-    v = eigvecs[:, np.argmax(eigvals)]  # huvudriktning
-
-    angle = np.arctan2(v[1], v[0])
-    rot = (np.pi / 2) - angle  # rotera mot vertikal
-
-    max_rot = np.deg2rad(25)
-    rot = float(np.clip(rot, -max_rot, max_rot))
-
-    out = np.zeros_like(img)
-    cy, cx = 13.5, 13.5
-    cosr, sinr = np.cos(rot), np.sin(rot)
-
-    # nearest-neighbor rotation (28x28)
-    for yy in range(28):
-        for xx in range(28):
-            y0 = yy - cy
-            x0 = xx - cx
-            xs0 =  cosr * x0 + sinr * y0 + cx
-            ys0 = -sinr * x0 + cosr * y0 + cy
-            xi, yi = int(round(xs0)), int(round(ys0))
-            if 0 <= yi < 28 and 0 <= xi < 28:
-                out[yy, xx] = img[yi, xi]
-
-    return out
-
-
-
 def preprocess(canvas_rgba: np.ndarray) -> np.ndarray:
+    """Förbehandlar canvasbilden så att den matchar modellens inputformat, t.ex. konverterar till gråskala, inverterar vid behov, beskär runt siffran, centrerar siffran och skapar en 28x28-bild."""
     img = Image.fromarray(canvas_rgba.astype("uint8"), mode="RGBA").convert("L")
 
     arr0 = np.array(img)
@@ -166,27 +153,31 @@ def preprocess(canvas_rgba: np.ndarray) -> np.ndarray:
     canvas_img.paste(cropped, (left_pad, top_pad))
 
     out = np.array(canvas_img).astype(np.float32)
-
     out = shift_to_center(out)
 
     return out.reshape(1, -1).astype(np.float32)
 
-def get_input_and_preview():
+
+def get_input():            
+    """Hämtar data från canvas och använder skapade funktionen preprocess för att preprocessa bilden, om canvas är tom returneras None."""
     if canvas.image_data is None:
-        return None, None
+        return None
     X_input = preprocess(canvas.image_data)
     if np.max(X_input) == 0:
-        return None, None
-    preview = X_input.reshape(28, 28).astype(np.uint8)
-    return X_input, preview
+        return None
+    return X_input
+
 
 def softmax(x: np.ndarray) -> np.ndarray:
+    """Gör om scores från decision_function till sannolikheter (värden mellan 0 och 1, summa = 1)."""
     x = x.astype(np.float32)
     x = x - np.max(x)
     ex = np.exp(x)
     return ex / np.sum(ex)
 
+
 def get_confidence_scores(model, X_input: np.ndarray) -> np.ndarray:
+    """Hämtar sannolikheter/scores för siffrorna 0–9 från modellen."""
     if hasattr(model, "predict_proba"):
         probs = model.predict_proba(X_input)[0]
         return probs.astype(np.float32)
@@ -201,8 +192,12 @@ def get_confidence_scores(model, X_input: np.ndarray) -> np.ndarray:
     out[pred_] = 1.0
     return out
 
-# Auto-analys
-X_input, preview = get_input_and_preview()
+
+# =========================
+# ANALYS (PREDIKTION)
+# =========================
+
+X_input = get_input()
 
 with mid:
     if X_input is None:
@@ -237,7 +232,9 @@ with mid:
             unsafe_allow_html=True
         )
 
-    # Rensa-knapp
+    # =========================
+    # RENSAKNAPP
+    # ========================= 
     btn_l, btn_m, btn_r = st.columns([1, 2, 1])
     with btn_m:
         if st.button("Rensa ritytan", use_container_width=True):
@@ -245,65 +242,78 @@ with mid:
             st.session_state["last_scores"] = None
             st.rerun()
 
-# Staplar för vilka siffror modellen träffar
-st.subheader("Modellens säkerhet per siffra (%)")
-
-scores = st.session_state.get("last_scores", None)
-
-if scores is None:
-    st.caption("Rita en siffra för att se träffsäkerhet.")
-else:
-    df = pd.DataFrame({
-        "Siffra": [str(i) for i in range(10)],
-        "Confidence": scores
-    })
-
-    y_max = float(min(1.0, df["Confidence"].max() + 0.10))
-
-    x_axis = alt.X(
-    "Siffra:N",
-    sort=[str(i) for i in range(10)],
-    title="Träffade siffror",
-    axis=alt.Axis(labelAngle=0, labelFontSize=12)
+# =========================
+# STAPELDIAGRAM MED PROCENTUELL SANNOLIKHET PER SIFFRA
+# =========================
+with mid:
+    st.markdown(
+        "<h2 style='text-align:center; margin-top: 16px; margin-bottom: 6px;'>Sannolikhet per siffra (%)</h2>",
+        unsafe_allow_html=True
     )
 
-    y_axis = alt.Y(
-        "Confidence:Q",
-        title="Sannolikhet",
-        axis=alt.Axis(format=".0%", tickCount=6),
-        scale=alt.Scale(domain=[0, y_max])
-    )
+    scores = st.session_state.get("last_scores", None)
 
-    bars = alt.Chart(df).mark_bar().encode(
-        x=x_axis,
-        y=y_axis,
-        tooltip=[
-            alt.Tooltip("Siffra:N", title="Siffra"),
-            alt.Tooltip("Confidence:Q", title="Träffsäkerhet", format=".1%")
-        ]
-    ).properties(height=320)
+    if scores is None:
+        st.markdown(
+            "<p style='text-align:center; color: rgba(255,255,255,0.65); margin-top: 0;'>Rita en siffra för att se sannolikhetsfördelningen.</p>",
+            unsafe_allow_html=True
+        )
 
-    df_lbl = df[df["Confidence"] >= 0.05].copy()
+if scores is not None:
+    chart_left, chart_mid, chart_right = st.columns([0.5, 5, 0.5])
 
-    labels = alt.Chart(df_lbl).mark_text(
-        fontSize=13,
-        fontWeight="bold",
-        dy=-16,
-        color="white"
-    ).encode(
-        x=alt.X("Siffra:N", sort=[str(i) for i in range(10)]),
-        y=y_axis,
-        text=alt.Text("Confidence:Q", format=".1%")
-    )
+    with chart_mid:
+        df = pd.DataFrame({
+            "Siffra": [str(i) for i in range(10)],
+            "Confidence": scores
+        })
 
-    chart = (bars + labels).configure_view(
-        strokeWidth=0
-    ).configure_axis(
-        labelColor="white",
-        titleColor="white",
-        gridColor="rgba(255,255,255,0.15)",
-        domainColor="rgba(255,255,255,0.35)",
-        tickColor="rgba(255,255,255,0.35)"
-    )
+        y_max = float(min(1.0, df["Confidence"].max() + 0.10))
 
-    st.altair_chart(chart, use_container_width=True)
+        x_axis = alt.X(
+            "Siffra:N",
+            sort=[str(i) for i in range(10)],
+            title="Siffror",
+            axis=alt.Axis(labelAngle=0, labelFontSize=12)
+        )
+
+        y_axis = alt.Y(
+            "Confidence:Q",
+            title="Sannolikhet",
+            axis=alt.Axis(format=".0%", tickCount=6),
+            scale=alt.Scale(domain=[0, y_max])
+        )
+
+        bars = alt.Chart(df).mark_bar().encode(
+            x=x_axis,
+            y=y_axis,
+            tooltip=[
+                alt.Tooltip("Siffra:N", title="Siffra"),
+                alt.Tooltip("Confidence:Q", title="Sannolikhet", format=".1%")
+            ]
+        ).properties(height=360)
+
+        df_lbl = df[df["Confidence"] >= 0.05].copy()
+
+        labels = alt.Chart(df_lbl).mark_text(
+            fontSize=13,
+            fontWeight="bold",
+            dy=-16,
+            color="white"
+        ).encode(
+            x=alt.X("Siffra:N", sort=[str(i) for i in range(10)]),
+            y=y_axis,
+            text=alt.Text("Confidence:Q", format=".1%")
+        )
+
+        chart = (bars + labels).configure_view(
+            strokeWidth=0
+        ).configure_axis(
+            labelColor="white",
+            titleColor="white",
+            gridColor="rgba(255,255,255,0.15)",
+            domainColor="rgba(255,255,255,0.35)",
+            tickColor="rgba(255,255,255,0.35)"
+        )
+
+        st.altair_chart(chart, use_container_width=True)
