@@ -56,7 +56,7 @@ st.markdown(
 # =========================
 # LAYOUT (KOLUMNER)
 # =========================
-left, mid, right = st.columns([1, 2, 1])
+_, mid, _ = st.columns([1, 2, 1])  # _ = oanvända variabler
 
 
 # =========================
@@ -158,7 +158,7 @@ def preprocess(canvas_rgba: np.ndarray) -> np.ndarray:
     return out.reshape(1, -1).astype(np.float32)
 
 
-def get_input():            
+def get_input() -> np.ndarray | None:            
     """Hämtar data från canvas och använder skapade funktionen preprocess för att preprocessa bilden, om canvas är tom returneras None."""
     if canvas.image_data is None:
         return None
@@ -183,9 +183,9 @@ def get_confidence_scores(model, X_input: np.ndarray) -> np.ndarray:
         return probs.astype(np.float32)
 
     if hasattr(model, "decision_function"):
-        scores = model.decision_function(X_input)
-        scores = np.array(scores).reshape(-1)
-        return softmax(scores)
+        decision_scores = model.decision_function(X_input)
+        decision_scores = np.array(decision_scores).reshape(-1)
+        return softmax(decision_scores)
 
     out = np.zeros(10, dtype=np.float32)
     pred_ = int(model.predict(X_input)[0])
@@ -203,9 +203,9 @@ with mid:
     if X_input is None:
         st.session_state["last_scores"] = None
     else:
-        scores = get_confidence_scores(model, X_input)
-        pred = int(np.argmax(scores))
-        st.session_state["last_scores"] = scores
+        current_scores = get_confidence_scores(model, X_input)
+        pred = int(np.argmax(current_scores))
+        st.session_state["last_scores"] = current_scores
 
         # Prediktionskort
         st.markdown(
@@ -235,7 +235,7 @@ with mid:
     # =========================
     # RENSAKNAPP
     # ========================= 
-    btn_l, btn_m, btn_r = st.columns([1, 2, 1])
+    _, btn_m, _ = st.columns([1, 2, 1])     # _ =  oanvända variabler
     with btn_m:
         if st.button("Rensa ritytan", use_container_width=True):
             st.session_state["canvas_key"] += 1
@@ -251,21 +251,21 @@ with mid:
         unsafe_allow_html=True
     )
 
-    scores = st.session_state.get("last_scores", None)
+    saved_scores = st.session_state.get("last_scores", None)
 
-    if scores is None:
+    if saved_scores is None:
         st.markdown(
             "<p style='text-align:center; color: rgba(255,255,255,0.65); margin-top: 0;'>Rita en siffra för att se sannolikhetsfördelningen.</p>",
             unsafe_allow_html=True
         )
 
-if scores is not None:
-    chart_left, chart_mid, chart_right = st.columns([0.5, 5, 0.5])
+if saved_scores is not None:
+    _, chart_mid, _ = st.columns([0.5, 5, 0.5])
 
     with chart_mid:
         df = pd.DataFrame({
             "Siffra": [str(i) for i in range(10)],
-            "Confidence": scores
+            "Confidence": saved_scores
         })
 
         y_max = float(min(1.0, df["Confidence"].max() + 0.10))
