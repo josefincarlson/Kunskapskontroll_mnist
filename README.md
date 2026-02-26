@@ -13,11 +13,13 @@ All files needed to run the Streamlit application `app_numbers_MNIST.py`.
 - **streamlit_josefin_carlson.ipynb**  
   Trains the final model on the full MNIST dataset for deployment in the Streamlit app (`app_numbers_MNIST.py`).
 
-
 ## Requirements
 
 Install dependencies:
     pip install streamlit numpy pandas scikit-learn joblib pillow altair streamlit-drawable-canvas
+
+## Python version
+Tested with Python 3.13.
 
 ## How to run the app
 1. Go to the `Streamlit_app` folder. 
@@ -28,5 +30,3 @@ Install dependencies:
 kunskapskontrollmnist-josefincarlson.streamlit.app
 
 
-## Python version
-Tested with Python 3.13.
